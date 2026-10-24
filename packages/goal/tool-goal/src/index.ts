@@ -158,9 +158,8 @@ function guidance(blockedAfter: number): string {
     + 'resume to rearm it. Mark complete only when the objective is actually achieved. Mark '
     + `blocked only after the same blocking condition persists for at least ${blockedAfter} `
     + 'consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, '
-    + 'or useful remaining work is not blocked. A goal may carry up to 16 subgoals, one per independently '
-    + 'checkable condition: add_subgoal while planning, update_subgoal with evidence as each condition closes, '
-    + 'and complete is refused while any child is not done.'
+    + 'or useful remaining work is not blocked. Subgoals are per-condition checks: add_subgoal while '
+    + 'planning, update_subgoal as each closes; complete needs all of them done.'
 }
 
 /** Validate config even when apply is called directly outside Loader normalization. */
@@ -299,20 +298,20 @@ export function apply(ctx: Context, config: Config): void {
       },
       subgoal_title: {
         type: 'string',
-        description: 'Required with action add_subgoal: one independently checkable condition of this goal.',
+        description: 'Condition the child tracks (add_subgoal).',
       },
       subgoal_id: {
         type: 'string',
-        description: 'Required with action update_subgoal or remove_subgoal: the id returned by get_goal.',
+        description: 'Child id from get_goal (update/remove).',
       },
       subgoal_status: {
         type: 'string',
         enum: [...SUBGOAL_STATUSES],
-        description: 'Required with action update_subgoal unless subgoal_note is given.',
+        description: 'New child state (update_subgoal).',
       },
       subgoal_note: {
         type: 'string',
-        description: 'Optional with action update_subgoal: why the condition is in that state; an empty string clears it.',
+        description: 'Why; empty clears (update_subgoal).',
       },
     },
     output: GOAL_OUTPUT,
