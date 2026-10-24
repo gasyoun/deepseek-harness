@@ -396,7 +396,7 @@ describe('GoalService subgoals', () => {
     ctx.goals.create(agent, { objective: 'projected' })
     ctx.goals.addSubgoal(agent, { title: 'visible' })
 
-    const projected = ctx.sessionProjections.stateOf(session, 'goal').current
+    const projected = (ctx.sessionProjections.stateOf(session, 'goal') as { current: { subgoals: readonly unknown[] } | null }).current
     expect(projected?.subgoals).toEqual([{ id: 's1', title: 'visible', status: 'open' }])
 
     const change = decodeGoalSubgoalChange({

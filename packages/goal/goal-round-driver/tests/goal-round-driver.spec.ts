@@ -162,6 +162,7 @@ describe('goal-round outcome policy', () => {
       createdAt: 1,
       updatedAt: 2,
       activation: 'armed',
+      subgoals: [],
     }
     const prompt = goalSession.renderGoalRoundPrompt(goal, 3)
     expect(prompt).toHaveLength(1)
@@ -183,6 +184,7 @@ describe('goal-round outcome policy', () => {
       createdAt: 1,
       updatedAt: 1,
       activation: 'armed',
+      subgoals: [],
     }
     const block = goalSession.renderGoalRoundPrompt(goal, 1)[0]
     if (block?.type !== 'text') throw new Error('expected a text goal-round prompt')

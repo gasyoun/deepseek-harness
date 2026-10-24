@@ -19,11 +19,12 @@ function projection(): GoalProjection {
     roundsStarted: 0,
     createdAt: 1,
     updatedAt: 1,
+    subgoals: [],
   }
 }
 
 function goalView(activation: 'armed' | 'disarmed'): GoalView {
-  return { ...projection().goal, roundsStarted: 0, createdAt: 1, updatedAt: 1, activation }
+  return { ...projection().goal, roundsStarted: 0, createdAt: 1, updatedAt: 1, activation, subgoals: [] }
 }
 
 describe('goal activation source', () => {

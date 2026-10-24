@@ -43,6 +43,7 @@ function makeProjection(revision = 3): GoalProjection {
       maxGoalRounds: 8,
     },
     roundsStarted: 1,
+    subgoals: [],
     createdAt: 10,
     updatedAt: 20,
   }
@@ -88,6 +89,7 @@ async function bench(options: {
       createdAt: options.projection.createdAt,
       updatedAt: options.projection.updatedAt,
       activation: options.activation ?? 'armed',
+      subgoals: options.projection.subgoals,
     }
   }
   const goals = (prefix: string) => ({
