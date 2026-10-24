@@ -33,7 +33,7 @@ kind: "package-reference"
 
 | 输入 | 结果 |
 |---|---|
-| `/goal` | 显示当前目标、持久 phase、Round 数量与上限、进程本地续行启用状态与有效的下一步命令；被阻塞的 goal 还会显示其策略代码与说明 |
+| `/goal` | 显示当前目标、持久 phase、Round 数量与上限；当 goal 携带子目标时显示 `Subgoals: N/M done` 并逐行列出每个子目标；再显示进程本地续行启用状态与有效的下一步命令；被阻塞的 goal 还会显示其策略代码与说明 |
 | `/goal <objective>` | 创建 goal 并启用续行，或用全新身份替换已完成 goal |
 | `/goal edit <objective>` | 编辑当前目标，不改变其 phase 或续行启用状态 |
 | `/goal pause` | 暂停 active goal 并停用续行 |

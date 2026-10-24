@@ -64,6 +64,11 @@ goal 经历四种持久 phase——`active`、`paused`、`blocked`、`complete`�
 | `complete` | 标记 goal 已完成并停止续行 |
 | `block` | 记录稳定的 blocker 代码与说明 |
 | `clear` | 移除当前 goal；其历史保留在会话日志中 |
+| `addSubgoal` | 向当前 goal 追加一个按条件拆分的子目标（`s1`、`s2`……） |
+| `updateSubgoal` | 设置某个子目标的 `open`/`done`/`blocked` 状态和/或备注 |
+| `removeSubgoal` | 移除某个子目标 |
+
+子目标是持久的按条件拆分子目标，而不是第二个 goal：子目标变更不触碰 goal 的 phase、revision、目标与轮次预算，并在自己的 `goal/subgoal` 事件中提交完整列表。一个 goal 最多携带 16 个子目标；只要有子目标不是 `done`，`complete` 就会被拒绝；`goal` 投影以 `subgoals` 暴露该列表（投影状态版本 7；v6 日志会以空列表重放）。
 
 pause、complete、block 和 clear 都会停用续行。block 是唯一保留策略自有 lower-kebab-case 代码与自由文本说明的 phase，因此提供方限制、预算耗尽、执行错误与请求人工输入共用一种持久 phase，而不是扩增生命周期状态。resume 只在 Round 上限仍有剩余容量时接受已停止的 goal，或 active 但已停用续行的 goal，并清除任何先前的 blocker reason。
 

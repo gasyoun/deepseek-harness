@@ -1,0 +1,28 @@
+# Bilingual-pair consistency record for 2026-10-24-goal-subgoals.md (docs/i18n/README.md): per heading
+# section, a hash of its English and Chinese blocks outside code blocks and generated regions.
+# After editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-10-24-goal-subgoals.md
+/agent-note-goal-subgoals-as-a-separate-durable-child-list:
+  en: 674e3536ec28ae8b
+  zh: 12ec33e44e9a9518
+/agent-note-goal-subgoals-as-a-separate-durable-child-list/problem:
+  en: b02c3a93af69339b
+  zh: a713e26bb97a2e95
+/agent-note-goal-subgoals-as-a-separate-durable-child-list/decision:
+  en: fc56f7866cd3a991
+  zh: 7a968b89ad6eff31
+/agent-note-goal-subgoals-as-a-separate-durable-child-list/decision/children-ride-their-own-event-stream:
+  en: daed94a0eed983e2
+  zh: e8dd19db1fdcb258
+/agent-note-goal-subgoals-as-a-separate-durable-child-list/decision/the-state-is-visible-where-each-consumer-already-reads:
+  en: 5e279f0473d007f0
+  zh: d95e23c00c5f1f78
+/agent-note-goal-subgoals-as-a-separate-durable-child-list/decision/bounds-and-the-completion-rule-are-enforced-where-the-mutation-happens:
+  en: 9b3581be1c3b7b16
+  zh: 0b454ed32edd96b3
+/agent-note-goal-subgoals-as-a-separate-durable-child-list/alternatives-considered:
+  en: d0838aa5a95f291b
+  zh: 0d031e78ba4a2125
+/agent-note-goal-subgoals-as-a-separate-durable-child-list/consequences:
+  en: f2e3eb4e956f646d
+  zh: c013795a3df89fd9

@@ -29,6 +29,35 @@ type GoalPhase =
   | 'complete'
 ```
 
+A goal may carry per-condition subgoals. A subgoal is one independently checkable condition of the same goal, not a second goal: the parent keeps its objective, phase, round cap and revision, and the child only names what is still open.
+
+```ts type-equiv
+/** Durable completion state of one goal subgoal. */
+type GoalSubgoalStatus =
+  | 'open'
+  | 'done'
+  | 'blocked'
+```
+
+```ts type-equiv
+/**
+ * One per-condition child of a goal. A subgoal is not a second goal: the
+ * parent keeps the objective, phase, round cap and revision, while the child
+ * makes one independently checkable condition separately visible and lets a
+ * partially satisfied goal report which condition still blocks it.
+ */
+interface GoalSubgoal {
+  /** Stable identity within the parent goal, minted by the service (`s1`, `s2`, …). */
+  readonly id: string
+  /** Non-empty normalized condition the child tracks. */
+  readonly title: string
+  /** Current durable completion state. */
+  readonly status: GoalSubgoalStatus
+  /** Optional normalized note explaining the state. */
+  readonly note?: string
+}
+```
+
 Blocking is the single durable stopped-by-a-problem state. Its policy-owned reason carries a stable lower-kebab-case code for routing and a free-form explanation for humans and models.
 
 ```ts type-equiv
@@ -66,6 +95,8 @@ interface GoalView extends GoalSnapshot {
   readonly updatedAt: number
   /** Process-local continuation eligibility; never persisted. */
   readonly activation: GoalActivation
+  /** Per-condition children of this goal, in creation order. */
+  readonly subgoals: readonly GoalSubgoal[]
 }
 ```
 
@@ -90,7 +121,7 @@ interface GoalActivationChanged {
 
 ## Durable changes
 
-Every mutation is a durable `goal/change` session event whose payload is either a complete post-mutation snapshot or a clear tombstone. The strict fold and persisted projection derive lifecycle state only from these events; inbox mutations do not affect goal state.
+Every lifecycle mutation is a durable `goal/change` session event whose payload is either a complete post-mutation snapshot or a clear tombstone. Subgoals have their own durable `goal/subgoal` event carrying the complete post-mutation child list of one goal; it leaves the goal revision, phase and round budget untouched, and a list scoped to a cleared or replaced goal is dropped on replay. The strict fold and persisted projection derive lifecycle state only from these events; inbox mutations do not affect goal state.
 
 ```ts type-equiv
 /** Full-snapshot goal mutation committed by a durable `goal/change` event. */

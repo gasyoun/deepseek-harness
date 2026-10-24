@@ -2601,6 +2601,16 @@
       "doc": "docs/subsystems/session-projection.md",
       "symbol": "ProjectionKeySelection",
       "source": "packages/session/session-projection/src/index.ts"
+    },
+    {
+      "doc": "docs/subsystems/goal.md",
+      "symbol": "GoalSubgoalStatus",
+      "source": "packages/goal/goal/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/goal.md",
+      "symbol": "GoalSubgoal",
+      "source": "packages/goal/goal/src/types.ts"
     }
   ]
 }

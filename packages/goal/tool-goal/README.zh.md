@@ -35,9 +35,9 @@ kind: "package-reference"
 |---|---|
 | `get_goal()` | 读取当前 goal；没有当前 goal 时返回 `null` |
 | `create_goal(objective, max_goal_rounds?)` | 根据人类直接发起的顶层轮次创建一个 goal |
-| `update_goal(goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?)` | 对精确 goal revision 执行 `edit`、`pause`、`resume`、`complete` 或 `blocked` |
+| `update_goal(goal_id, revision, action, objective?, max_goal_rounds?, blocked_reason?, subgoal_title?, subgoal_id?, subgoal_status?, subgoal_note?)` | 对精确 goal revision 执行 `edit`、`pause`、`resume`、`complete`、`blocked`、`add_subgoal`、`update_subgoal` 或 `remove_subgoal` |
 
-在 `update_goal` 之前调用 `get_goal`，并复制精确的 `goal_id` 与 `revision`；所有调用都互斥，因此模型排序的批次能观察到更早变更及其新 revision。替换值只属于 `edit`；`blocked_reason` 只有在 `blocked` 时才必填，并以稳定代码 `model-reported` 持久化。严格 schema 下的空字符串和零填充值视为省略，而有意义的值仍限定到各自 action。
+在 `update_goal` 之前调用 `get_goal`，并复制精确的 `goal_id` 与 `revision`；所有调用都互斥，因此模型排序的批次能观察到更早变更及其新 revision。替换值只属于 `edit`；`blocked_reason` 只有在 `blocked` 时才必填，并以稳定代码 `model-reported` 持久化。子目标 action 中，`add_subgoal` 取 `subgoal_title`；`update_subgoal` 取 `subgoal_id` 以及 `subgoal_status` 和/或 `subgoal_note`。子目标变更返回刷新后的列表，不消耗 goal revision；只要还有子目标不是 `done`，`complete` 会以 `GOAL_SUBGOALS_OPEN` 被拒绝。严格 schema 下的空字符串和零填充值视为省略，而有意义的值仍限定到各自 action。
 
 ### 配置
 

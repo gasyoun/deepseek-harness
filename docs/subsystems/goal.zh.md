@@ -29,6 +29,35 @@ type GoalPhase =
   | 'complete'
 ```
 
+一个目标可以携带按条件拆分的子目标。子目标是同一目标的某个可独立核对的条件，而不是第二个目标：父目标保留目的、阶段、轮次上限与修订号，子目标只负责说明哪个条件仍未完成。
+
+```ts type-equiv
+/** Durable completion state of one goal subgoal. */
+type GoalSubgoalStatus =
+  | 'open'
+  | 'done'
+  | 'blocked'
+```
+
+```ts type-equiv
+/**
+ * One per-condition child of a goal. A subgoal is not a second goal: the
+ * parent keeps the objective, phase, round cap and revision, while the child
+ * makes one independently checkable condition separately visible and lets a
+ * partially satisfied goal report which condition still blocks it.
+ */
+interface GoalSubgoal {
+  /** Stable identity within the parent goal, minted by the service (`s1`, `s2`, …). */
+  readonly id: string
+  /** Non-empty normalized condition the child tracks. */
+  readonly title: string
+  /** Current durable completion state. */
+  readonly status: GoalSubgoalStatus
+  /** Optional normalized note explaining the state. */
+  readonly note?: string
+}
+```
+
 阻塞是唯一表示「因问题而停止」的持久状态。由策略负责的阻塞原因会携带一个用于路由、稳定且采用 lower-kebab-case 的代码，以及一段供人和模型阅读的自由文本说明。
 
 ```ts type-equiv
@@ -66,6 +95,8 @@ interface GoalView extends GoalSnapshot {
   readonly updatedAt: number
   /** Process-local continuation eligibility; never persisted. */
   readonly activation: GoalActivation
+  /** Per-condition children of this goal, in creation order. */
+  readonly subgoals: readonly GoalSubgoal[]
 }
 ```
 
@@ -90,7 +121,7 @@ interface GoalActivationChanged {
 
 ## 持久变更
 
-每次变更都是持久的 `goal/change` 会话事件，其载荷要么是变更后的完整快照，要么是清除墓碑。严格折叠与持久投影只从这些事件派生生命周期状态；inbox 变更不会影响 goal 状态。
+每次生命周期变更都是持久的 `goal/change` 会话事件，其载荷要么是变更后的完整快照，要么是清除墓碑。子目标另有持久的 `goal/subgoal` 事件，携带某个目标变更后的完整子目标列表；它不改变目标的修订号、阶段与轮次预算，且属于已清除或被替换目标的列表会在重放时被丢弃。严格折叠与持久投影只从这些事件派生生命周期状态；inbox 变更不会影响 goal 状态。
 
 ```ts type-equiv
 /** Full-snapshot goal mutation committed by a durable `goal/change` event. */
