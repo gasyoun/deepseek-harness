@@ -3,7 +3,7 @@
 import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { GOAL_CHANGE_VERSION, GoalId } from './runtime.ts'
-import type { GoalBlockReason, GoalPhase, GoalRef, GoalSnapshot } from './types.ts'
+import type { GoalBlockReason, GoalPhase, GoalRef, GoalSnapshot, GoalSubgoal, GoalSubgoalStatus } from './types.ts'
 import type {
   FoldedGoal,
   GoalChangeMeta,
@@ -11,6 +11,8 @@ import type {
   GoalMessageSource,
   GoalOperation,
   GoalSnapshotChangeMeta,
+  GoalSubgoalChangeMeta,
+  GoalSubgoalOperation,
 } from './domain.ts'
 
 const SNAPSHOT_OPERATIONS: ReadonlySet<Exclude<GoalOperation, 'clear'>> = new Set([
@@ -22,6 +24,14 @@ const SNAPSHOT_OPERATIONS: ReadonlySet<Exclude<GoalOperation, 'clear'>> = new Se
   'block',
 ])
 const PHASES: ReadonlySet<GoalPhase> = new Set(['active', 'paused', 'blocked', 'complete'])
+const SUBGOAL_STATUSES: ReadonlySet<GoalSubgoalStatus> = new Set(['open', 'done', 'blocked'])
+const SUBGOAL_OPERATIONS: ReadonlySet<GoalSubgoalOperation> = new Set(['add', 'update', 'remove'])
+/** Largest child list one goal may carry; a checklist longer than this is a plan, not a goal. */
+export const MAX_GOAL_SUBGOALS = 16
+/** Longest accepted subgoal id, title and note, in characters. */
+const SUBGOAL_ID_LIMIT = 16
+const SUBGOAL_TITLE_LIMIT = 160
+const SUBGOAL_NOTE_LIMIT = 500
 
 /** Mutable accumulator kept private to the pure fold. */
 export interface GoalFoldState {
@@ -31,6 +41,7 @@ export interface GoalFoldState {
   updatedAt: number | undefined
   lastRef: GoalRef | undefined
   seenGoalIds: Set<GoalSnapshot['id']>
+  subgoals: GoalSubgoal[]
 }
 
 /**
@@ -45,6 +56,7 @@ export function emptyGoalFoldState(): GoalFoldState {
     updatedAt: undefined,
     lastRef: undefined,
     seenGoalIds: new Set(),
+    subgoals: [],
   }
 }
 
@@ -171,7 +183,81 @@ export function decodeGoalChange(value: unknown): GoalChangeMeta | undefined {
   } satisfies GoalSnapshotChangeMeta
 }
 
-/** Narrow model attribution to a valid goal source. */
+/** Decode one canonical subgoal row. */
+function decodeSubgoal(value: unknown, index: number): GoalSubgoal {
+  if (!isRecord(value)) throw new Error(`goal subgoal ${String(index)} must be a record`)
+  const hasNote = value['note'] !== undefined
+  const allowed = hasNote ? ['id', 'note', 'status', 'title'] : ['id', 'status', 'title']
+  if (Object.keys(value).sort().join(',') !== allowed.sort().join(',')) {
+    throw new Error(`goal subgoal ${String(index)} must have exactly ${allowed.sort().join(',')} fields`)
+  }
+  const id = value['id']
+  if (typeof id !== 'string' || !/^s[1-9][0-9]*$/.test(id) || id.length > SUBGOAL_ID_LIMIT) {
+    throw new Error('goal subgoal id must be a service-minted s<N> token')
+  }
+  const title = value['title']
+  if (typeof title !== 'string' || title.trim().length === 0 || title !== title.trim()
+    || title.length > SUBGOAL_TITLE_LIMIT) {
+    throw new Error('goal subgoal title must be non-empty, normalized and within its limit')
+  }
+  const status = value['status']
+  if (typeof status !== 'string' || !SUBGOAL_STATUSES.has(status as GoalSubgoalStatus)) {
+    throw new Error('goal subgoal status is invalid')
+  }
+  if (!hasNote) return { id, title, status: status as GoalSubgoalStatus }
+  const note = value['note']
+  if (typeof note !== 'string' || note.trim().length === 0 || note !== note.trim()
+    || note.length > SUBGOAL_NOTE_LIMIT) {
+    throw new Error('goal subgoal note must be non-empty, normalized and within its limit')
+  }
+  return { id, title, status: status as GoalSubgoalStatus, note }
+}
+
+/** Decode one complete subgoal list without reordering it. */
+function decodeSubgoals(value: unknown): GoalSubgoal[] {
+  if (!Array.isArray(value)) throw new Error('goal subgoals must be an array')
+  if (value.length > MAX_GOAL_SUBGOALS) throw new Error(`goal subgoals cannot exceed ${String(MAX_GOAL_SUBGOALS)} entries`)
+  const decoded = value.map((entry, index) => decodeSubgoal(entry, index))
+  if (new Set(decoded.map(entry => entry.id)).size !== decoded.length) {
+    throw new Error('goal subgoal ids must be unique within their goal')
+  }
+  return decoded
+}
+
+/**
+ * Decode a value that declares itself as a goal subgoal change. Unrelated
+ * values return `undefined`; malformed changes fail replay loudly.
+ * @param value - candidate session event payload.
+ * @returns validated subgoal change or `undefined` for another value kind.
+ */
+export function decodeGoalSubgoalChange(value: unknown): GoalSubgoalChangeMeta | undefined {
+  if (!isRecord(value) || value['kind'] !== 'goal/subgoal') return undefined
+  if (value['version'] !== GOAL_CHANGE_VERSION) {
+    throw new Error(`unsupported goal subgoal change version ${String(value['version'])}`)
+  }
+  const allowed = ['at', 'goalId', 'goalRevision', 'kind', 'operation', 'subgoals', 'version']
+  if (Object.keys(value).sort().join(',') !== allowed.sort().join(',')) {
+    throw new Error(`goal subgoal change must have exactly ${allowed.sort().join(',')} fields`)
+  }
+  if (typeof value['goalId'] !== 'string' || value['goalId'].length === 0) {
+    throw new Error('goal subgoal change goalId must be a non-empty string')
+  }
+  const operation = value['operation']
+  if (typeof operation !== 'string' || !SUBGOAL_OPERATIONS.has(operation as GoalSubgoalOperation)) {
+    throw new Error('goal subgoal change operation is invalid')
+  }
+  return {
+    kind: 'goal/subgoal',
+    version: GOAL_CHANGE_VERSION,
+    goalId: GoalId(value['goalId']),
+    goalRevision: positiveInteger(value['goalRevision'], 'goalRevision'),
+    operation: operation as GoalSubgoalOperation,
+    subgoals: decodeSubgoals(value['subgoals']),
+    at: nonNegativeInteger(value['at'], 'at'),
+  }
+}
+
+
 function goalSource(source: MessageSource): GoalMessageSource | undefined {
   if (source.kind !== 'goal') return undefined
   if (typeof source.goalId !== 'string' || source.goalId.length === 0
@@ -264,6 +350,25 @@ export function goalChangeRef(change: GoalChangeMeta): GoalRef {
 }
 
 /**
+ * Apply one decoded subgoal list to the mutable accumulator.
+ *
+ * A list that names a goal other than the current one is a leftover from a
+ * cleared or replaced goal and is dropped: the create/clear arms of
+ * {@link applyGoalChange} reset the list, so no stale child survives into a
+ * new goal's projection.
+ * @param state - preceding durable goal projection.
+ * @param change - decoded complete child list.
+ */
+export function applyGoalSubgoalChange(state: GoalFoldState, change: GoalSubgoalChangeMeta): void {
+  const current = state.goal
+  if (current === undefined || current.id !== change.goalId) return
+  if (change.goalRevision > current.revision) {
+    throw new Error('goal subgoal change names a goal revision the fold has not reached')
+  }
+  state.subgoals = change.subgoals.map(subgoal => ({ ...subgoal }))
+}
+
+/**
  * Validate and apply one decoded change to a mutable accumulator.
  * @param state - preceding durable goal projection.
  * @param change - decoded full snapshot or clear tombstone.
@@ -284,6 +389,7 @@ export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta): v
     state.createdAt = undefined
     state.updatedAt = undefined
     state.lastRef = ref
+    state.subgoals = []
     return
   }
   if (change.operation === 'create') {
@@ -303,6 +409,7 @@ export function applyGoalChange(state: GoalFoldState, change: GoalChangeMeta): v
   state.createdAt = change.createdAt
   state.updatedAt = change.updatedAt
   state.lastRef = ref
+  if (change.operation === 'create') state.subgoals = []
 }
 
 /**
@@ -316,6 +423,13 @@ export function applyGoalEvent(state: GoalFoldState, event: SessionEvent): void 
     /* v8 ignore next -- the event's declared payload always identifies itself as a goal change. */
     if (change === undefined) throw new Error(`goal change at session event ${event.seq} has an invalid kind`)
     applyGoalChange(state, change)
+    return
+  }
+  if (event.type === 'goal/subgoal') {
+    const change = decodeGoalSubgoalChange(event.data)
+    /* v8 ignore next -- the event's declared payload always identifies itself as a subgoal change. */
+    if (change === undefined) throw new Error(`goal subgoal change at session event ${event.seq} has an invalid kind`)
+    applyGoalSubgoalChange(state, change)
     return
   }
   if (event.type === 'user/message') {
@@ -345,5 +459,6 @@ export function foldGoal(events: readonly SessionEvent[]): FoldedGoal {
     ...state.createdAt === undefined ? {} : { createdAt: state.createdAt },
     ...state.updatedAt === undefined ? {} : { updatedAt: state.updatedAt },
     ...state.lastRef === undefined ? {} : { lastRef: { ...state.lastRef } },
+    subgoals: state.goal === undefined ? [] : state.subgoals.map(subgoal => ({ ...subgoal })),
   }
 }

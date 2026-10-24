@@ -74,6 +74,17 @@ function commandHint(goal: GoalView): string {
   }
 }
 
+/** Render the per-condition child list, or nothing when the goal has none. */
+function renderSubgoals(goal: GoalView): string[] {
+  if (goal.subgoals.length === 0) return []
+  const done = goal.subgoals.filter(subgoal => subgoal.status === 'done').length
+  return [
+    `Subgoals: ${done}/${goal.subgoals.length} done`,
+    ...goal.subgoals.map(subgoal => `  · ${subgoal.id} [${subgoal.status}] ${subgoal.title}`
+      + (subgoal.note === undefined ? '' : ` — ${subgoal.note}`)),
+  ]
+}
+
 /** Render direct UI output without exposing compare-and-set internals. */
 function renderGoal(title: string, goal: GoalView): CommandResult {
   const reason = goal.phase === 'blocked' ? goal.blockedReason : undefined
@@ -88,6 +99,7 @@ function renderGoal(title: string, goal: GoalView): CommandResult {
       ...blocker,
       `Objective: ${goal.objective}`,
       `Rounds: ${goal.roundsStarted}/${goal.maxGoalRounds}`,
+      ...renderSubgoals(goal),
       `Activation: ${goal.activation}`,
       '',
       `Commands: ${commandHint(goal)}`,

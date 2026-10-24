@@ -692,3 +692,79 @@ describe('goal tool state transitions', () => {
     expect(blocked.additionalContexts).toBeUndefined()
   })
 })
+
+describe('goal tool subgoals', () => {
+  it('adds, updates and removes children through update_goal', async () => {
+    const { ctx, root } = await harness()
+    const humanTurn = openTurn(root, { kind: 'user' })
+    const created = resultGoal(await execute(ctx, 'create_goal', { objective: 'subgoal tooling' }, root.agent))
+    expect(created['subgoals']).toEqual([])
+    const ref = { goal_id: created['id'], revision: created['revision'] }
+
+    const added = resultGoal(await execute(ctx, 'update_goal', {
+      ...ref, action: 'add_subgoal', subgoal_title: ' gate ',
+    }, root.agent))
+    expect(added['subgoals']).toEqual([{ id: 's1', title: 'gate', status: 'open' }])
+
+    const updated = resultGoal(await execute(ctx, 'update_goal', {
+      ...ref, action: 'update_subgoal', subgoal_id: 's1', subgoal_status: 'done', subgoal_note: 'green',
+    }, root.agent))
+    expect(updated['subgoals']).toEqual([{ id: 's1', title: 'gate', status: 'done', note: 'green' }])
+
+    const cleared = resultGoal(await execute(ctx, 'update_goal', {
+      ...ref, action: 'update_subgoal', subgoal_id: 's1', subgoal_note: '',
+    }, root.agent))
+    expect(cleared['subgoals']).toEqual([{ id: 's1', title: 'gate', status: 'done' }])
+
+    const removed = resultGoal(await execute(ctx, 'update_goal', {
+      ...ref, action: 'remove_subgoal', subgoal_id: 's1',
+    }, root.agent))
+    expect(removed['subgoals']).toEqual([])
+    closeTurn(root, humanTurn)
+  })
+
+  it('refuses completion through the tool while a child is open', async () => {
+    const { ctx, root } = await harness()
+    const humanTurn = openTurn(root, { kind: 'user' })
+    const created = resultGoal(await execute(ctx, 'create_goal', { objective: 'two conditions' }, root.agent))
+    const ref = { goal_id: created['id'], revision: created['revision'] }
+    await execute(ctx, 'update_goal', { ...ref, action: 'add_subgoal', subgoal_title: 'first' }, root.agent)
+
+    const refused = await execute(ctx, 'update_goal', { ...ref, action: 'complete' }, root.agent)
+    expect(refused.error?.info?.code).toBe('GOAL_SUBGOALS_OPEN')
+
+    await execute(ctx, 'update_goal', {
+      ...ref, action: 'update_subgoal', subgoal_id: 's1', subgoal_status: 'done',
+    }, root.agent)
+    const completed = resultGoal(await execute(ctx, 'update_goal', { ...ref, action: 'complete' }, root.agent))
+    expect(completed).toMatchObject({ phase: 'complete' })
+    closeTurn(root, humanTurn)
+  })
+
+  it('rejects mixed edit fields and missing subgoal arguments', async () => {
+    const { ctx, root } = await harness()
+    const humanTurn = openTurn(root, { kind: 'user' })
+    const created = resultGoal(await execute(ctx, 'create_goal', { objective: 'argument guards' }, root.agent))
+    const ref = { goal_id: created['id'], revision: created['revision'] }
+
+    const mixed = await execute(ctx, 'update_goal', {
+      ...ref, action: 'add_subgoal', subgoal_title: 'row', objective: 'replace',
+    }, root.agent)
+    expect(mixed.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+
+    const missingTitle = await execute(ctx, 'update_goal', { ...ref, action: 'add_subgoal' }, root.agent)
+    expect(missingTitle.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+
+    const missingId = await execute(ctx, 'update_goal', {
+      ...ref, action: 'remove_subgoal',
+    }, root.agent)
+    expect(missingId.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+
+    await execute(ctx, 'update_goal', { ...ref, action: 'add_subgoal', subgoal_title: 'row' }, root.agent)
+    const emptyUpdate = await execute(ctx, 'update_goal', {
+      ...ref, action: 'update_subgoal', subgoal_id: 's1',
+    }, root.agent)
+    expect(emptyUpdate.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    closeTurn(root, humanTurn)
+  })
+})

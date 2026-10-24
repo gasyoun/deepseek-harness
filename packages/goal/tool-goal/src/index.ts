@@ -44,9 +44,28 @@ interface ResolvedConfig {
   readonly blockedAfterConsecutiveRounds: number
 }
 
-type UpdateAction = 'edit' | 'pause' | 'resume' | 'complete' | 'blocked'
+type UpdateAction =
+  | 'edit'
+  | 'pause'
+  | 'resume'
+  | 'complete'
+  | 'blocked'
+  | 'add_subgoal'
+  | 'update_subgoal'
+  | 'remove_subgoal'
 
-const UPDATE_ACTIONS: UpdateAction[] = ['edit', 'pause', 'resume', 'complete', 'blocked']
+const UPDATE_ACTIONS: UpdateAction[] = [
+  'edit',
+  'pause',
+  'resume',
+  'complete',
+  'blocked',
+  'add_subgoal',
+  'update_subgoal',
+  'remove_subgoal',
+]
+
+const SUBGOAL_STATUSES = ['open', 'done', 'blocked'] as const
 
 const CREATE_DESCRIPTION =
   'Create a persisted goal that keeps this session working across automatic continuation rounds. '
@@ -67,6 +86,12 @@ type GoalToolValue =
       roundsStarted: number
       maxGoalRounds: number
       blockedReason?: { code: string; message: string }
+      subgoals: {
+        id: string
+        title: string
+        status: 'open' | 'done' | 'blocked'
+        note?: string
+      }[]
     }
     activation: GoalView['activation']
   }
@@ -103,6 +128,20 @@ const GOAL_VALUE_SCHEMA = {
                 message: { type: 'string', required: true },
               },
             },
+            subgoals: {
+              type: 'array',
+              required: true,
+              items: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  id: { type: 'string', required: true },
+                  title: { type: 'string', required: true },
+                  status: { type: 'string', required: true, enum: [...SUBGOAL_STATUSES] },
+                  note: { type: 'string' },
+                },
+              },
+            },
           },
         },
         activation: { type: 'string', required: true, enum: ['armed', 'disarmed'] },
@@ -119,7 +158,9 @@ function guidance(blockedAfter: number): string {
     + 'resume to rearm it. Mark complete only when the objective is actually achieved. Mark '
     + `blocked only after the same blocking condition persists for at least ${blockedAfter} `
     + 'consecutive goal rounds, and report that concrete condition in blocked_reason; difficulty, uncertainty, '
-    + 'or useful remaining work is not blocked.'
+    + 'or useful remaining work is not blocked. A goal may carry up to 16 subgoals, one per independently '
+    + 'checkable condition: add_subgoal while planning, update_subgoal with evidence as each condition closes, '
+    + 'and complete is refused while any child is not done.'
 }
 
 /** Validate config even when apply is called directly outside Loader normalization. */
@@ -167,6 +208,12 @@ function goalValue(goal: GoalView | undefined): GoalToolValue {
       ...goal.blockedReason === undefined ? {} : {
         blockedReason: { code: goal.blockedReason.code, message: goal.blockedReason.message },
       },
+      subgoals: goal.subgoals.map(subgoal => ({
+        id: subgoal.id,
+        title: subgoal.title,
+        status: subgoal.status,
+        ...subgoal.note === undefined ? {} : { note: subgoal.note },
+      })),
     },
     activation: goal.activation,
   }
@@ -250,6 +297,23 @@ export function apply(ctx: Context, config: Config): void {
         type: 'string',
         description: 'Required only with action blocked: the concrete condition that persisted across rounds and blocks progress.',
       },
+      subgoal_title: {
+        type: 'string',
+        description: 'Required with action add_subgoal: one independently checkable condition of this goal.',
+      },
+      subgoal_id: {
+        type: 'string',
+        description: 'Required with action update_subgoal or remove_subgoal: the id returned by get_goal.',
+      },
+      subgoal_status: {
+        type: 'string',
+        enum: [...SUBGOAL_STATUSES],
+        description: 'Required with action update_subgoal unless subgoal_note is given.',
+      },
+      subgoal_note: {
+        type: 'string',
+        description: 'Optional with action update_subgoal: why the condition is in that state; an empty string clears it.',
+      },
     },
     output: GOAL_OUTPUT,
     execute(args, exec) {
@@ -287,6 +351,49 @@ export function apply(ctx: Context, config: Config): void {
           ? ctx.goals.pause(execution.agent, ref)
           : ctx.goals.resume(execution.agent, ref)
         return Promise.resolve(goalValue(goal))
+      }
+      if (args.action === 'add_subgoal' || args.action === 'update_subgoal' || args.action === 'remove_subgoal') {
+        if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds) || hasText(args.blocked_reason)) {
+          throw new HarnessError(
+            'objective, max_goal_rounds and blocked_reason are not valid with a subgoal action',
+            'GOAL_TOOL_INVALID_UPDATE',
+          )
+        }
+        if (args.action === 'add_subgoal') {
+          if (!hasText(args.subgoal_title)) {
+            throw new HarnessError('subgoal_title is required with action add_subgoal', 'GOAL_TOOL_INVALID_UPDATE')
+          }
+          return Promise.resolve(goalValue(ctx.goals.addSubgoal(execution.agent, { title: args.subgoal_title })))
+        }
+        if (!hasText(args.subgoal_id)) {
+          throw new HarnessError(
+            `subgoal_id is required with action ${args.action}`,
+            'GOAL_TOOL_INVALID_UPDATE',
+          )
+        }
+        if (args.action === 'remove_subgoal') {
+          if (args.subgoal_status !== undefined || args.subgoal_note !== undefined) {
+            throw new HarnessError(
+              'subgoal_status and subgoal_note are not valid with action remove_subgoal',
+              'GOAL_TOOL_INVALID_UPDATE',
+            )
+          }
+          return Promise.resolve(goalValue(ctx.goals.removeSubgoal(execution.agent, { id: args.subgoal_id })))
+        }
+        if (args.subgoal_status === undefined && args.subgoal_note === undefined) {
+          throw new HarnessError(
+            'action update_subgoal requires subgoal_status and/or subgoal_note',
+            'GOAL_TOOL_INVALID_UPDATE',
+          )
+        }
+        const note = args.subgoal_note === undefined
+          ? undefined
+          : args.subgoal_note === '' ? null : args.subgoal_note
+        return Promise.resolve(goalValue(ctx.goals.updateSubgoal(execution.agent, {
+          id: args.subgoal_id,
+          ...args.subgoal_status === undefined ? {} : { status: args.subgoal_status },
+          ...note === undefined ? {} : { note },
+        })))
       }
       const authority = completionAuthority(ctx, execution)
       if (hasText(args.objective) || hasRoundCap(args.max_goal_rounds)) {
@@ -330,14 +437,22 @@ export function apply(ctx: Context, config: Config): void {
       }
       return Promise.resolve(goalValue(goal))
     },
-    presentCall: args => present(
-      `${args.action === 'blocked' ? 'Mark' : args.action.charAt(0).toUpperCase() + args.action.slice(1)} goal`,
-      'other',
-      hasText(args.blocked_reason)
-        ? args.blocked_reason
-        : hasText(args.objective)
-          ? args.objective
-          : hasRoundCap(args.max_goal_rounds) ? args.max_goal_rounds : args.goal_id,
-    ),
+    presentCall: (args) => {
+      const title = args.action === 'add_subgoal' ? 'Add goal subgoal'
+        : args.action === 'update_subgoal' ? 'Update goal subgoal'
+          : args.action === 'remove_subgoal' ? 'Remove goal subgoal'
+            : `${args.action === 'blocked' ? 'Mark' : args.action.charAt(0).toUpperCase() + args.action.slice(1)} goal`
+      if (hasText(args.subgoal_title)) return present(title, 'other', args.subgoal_title)
+      if (hasText(args.subgoal_id)) return present(title, 'other', args.subgoal_id)
+      return present(
+        title,
+        'other',
+        hasText(args.blocked_reason)
+          ? args.blocked_reason
+          : hasText(args.objective)
+            ? args.objective
+            : hasRoundCap(args.max_goal_rounds) ? args.max_goal_rounds : args.goal_id,
+      )
+    },
   }))
 }

@@ -19,6 +19,7 @@ import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import {
   applyGoalEvent,
   goalChangeRef,
+  MAX_GOAL_SUBGOALS,
 } from './fold.ts'
 import type { GoalFoldState } from './fold.ts'
 import {
@@ -27,6 +28,7 @@ import {
   GoalId,
 } from './runtime.ts'
 import type {
+  AddGoalSubgoalRequest,
   CreateGoalRequest,
   CreateGoalResult,
   EditGoalRequest,
@@ -37,7 +39,10 @@ import type {
   GoalProjectionState,
   GoalRef,
   GoalSnapshot,
+  GoalSubgoal,
   GoalView,
+  RemoveGoalSubgoalRequest,
+  UpdateGoalSubgoalRequest,
 } from './types.ts'
 import type {
   GoalChangeMeta,
@@ -45,18 +50,28 @@ import type {
   GoalClearChangeMeta,
   GoalOperation,
   GoalSnapshotChangeMeta,
+  GoalSubgoalChangeMeta,
+  GoalSubgoalOperation,
 } from './domain.ts'
 
 export type * from './types.ts'
 export type * from './domain.ts'
 export { GOAL_CHANGE_VERSION, GoalError, GoalId } from './runtime.ts'
-export { decodeGoalChange, foldGoal, goalChangeRef } from './fold.ts'
+export { decodeGoalChange, decodeGoalSubgoalChange, foldGoal, goalChangeRef } from './fold.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
     goals: GoalService
   }
 }
+
+/** Wire schema of one subgoal row inside the `goal` projection. */
+const goalSubgoalSchema = zod.object({
+  id: zod.string().min(1),
+  title: zod.string().min(1),
+  status: zod.union([zod.literal('open'), zod.literal('done'), zod.literal('blocked')]),
+  note: zod.string().min(1).optional(),
+})
 
 /** Wire payload schema of the `goal` projection (current goal or pre-create/cleared null). */
 const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
@@ -72,6 +87,7 @@ const goalProjectionSchema: ZodType<GoalProjection | null> = zod.union([
     roundsStarted: zod.number().int().nonnegative(),
     createdAt: zod.number(),
     updatedAt: zod.number(),
+    subgoals: zod.array(goalSubgoalSchema),
   }),
   zod.null(),
 ]) as ZodType<GoalProjection | null>
@@ -105,6 +121,7 @@ function goalFoldState(state: GoalProjectionState): GoalFoldState {
     updatedAt: state.current?.updatedAt,
     lastRef: undefined,
     seenGoalIds: new Set(state.seenGoalIds),
+    subgoals: state.current === null ? [] : [...state.current.subgoals],
   }
 }
 
@@ -121,6 +138,7 @@ function goalProjectionState(state: GoalFoldState): GoalProjectionState {
       roundsStarted: state.roundsStarted,
       createdAt,
       updatedAt,
+      subgoals: state.subgoals.map(subgoal => ({ ...subgoal })),
     }
   }
   return {
@@ -141,7 +159,7 @@ function goalProjectionState(state: GoalFoldState): GoalProjectionState {
  */
 export function applyGoalProjection(state: GoalProjectionState, event: SessionEvent): GoalProjectionState {
   if (state.failure !== null) return state
-  if (event.type !== 'goal/change'
+  if (event.type !== 'goal/change' && event.type !== 'goal/subgoal'
     && (event.type !== 'user/message' || event.data.source.kind !== 'goal')) return state
   const folded = goalFoldState(state)
   try {
@@ -161,7 +179,7 @@ export const goalProjectionDefinition = {
   init: (): GoalProjectionState => ({ current: null, seenGoalIds: [], failure: null }),
   apply: applyGoalProjection,
   wire: { viewSchema: goalProjectionSchema, view: state => state.current },
-  stateVersion: 6,
+  stateVersion: 7,
 } satisfies ProjectionDefinition<'goal', GoalProjectionState>
 
 /** Deployment defaults for goal creation. */
@@ -213,6 +231,43 @@ function resolveCreateGoal(request: CreateGoalRequest, defaultMaxGoalRounds: num
     objective: resolveObjective(request.objective),
     maxGoalRounds: resolveMaxGoalRounds(request.maxGoalRounds ?? defaultMaxGoalRounds),
   }
+}
+
+/** Validate and normalize a subgoal title at the domain boundary. */
+function resolveSubgoalTitle(value: string): string {
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new GoalError('goal subgoal title must be a non-empty string', 'GOAL_INVALID_SUBGOAL')
+  }
+  const title = value.trim()
+  if (title.length > 160) {
+    throw new GoalError('goal subgoal title cannot exceed 160 characters', 'GOAL_INVALID_SUBGOAL')
+  }
+  return title
+}
+
+/** Validate one replacement note; `null` clears it, `undefined` leaves it unchanged. */
+function resolveSubgoalNote(value: string | null): string | undefined {
+  if (value === null) return undefined
+  if (typeof value !== 'string' || value.trim().length === 0) {
+    throw new GoalError('goal subgoal note must be a non-empty string or null', 'GOAL_INVALID_SUBGOAL')
+  }
+  const note = value.trim()
+  if (note.length > 500) {
+    throw new GoalError('goal subgoal note cannot exceed 500 characters', 'GOAL_INVALID_SUBGOAL')
+  }
+  return note
+}
+
+/** Mint the next service-owned subgoal id for one existing list. */
+function nextSubgoalId(subgoals: readonly GoalSubgoal[]): string {
+  let highest = 0
+  for (const subgoal of subgoals) {
+    const match = /^s([1-9][0-9]*)$/.exec(subgoal.id)
+    /* v8 ignore next -- the fold rejects any id that is not s<N>, so the regex always matches. */
+    if (match === null) continue
+    highest = Math.max(highest, Number(match[1]))
+  }
+  return `s${String(highest + 1)}`
 }
 
 /** Validate and detach one policy-owned blocker explanation. */
@@ -391,6 +446,16 @@ export class GoalService extends TypertRemoteService {
    */
   @Remote('complete')
   complete(agent: Agent, ref: GoalRef): GoalView {
+    const [state] = this.prepareMutation(agent)
+    const currentState = this.expectCurrent(state, ref)
+    const unfinished = currentState.subgoals.filter(subgoal => subgoal.status !== 'done')
+    if (unfinished.length > 0) {
+      throw new GoalError(
+        `goal "${currentState.goal.id}" still has ${String(unfinished.length)} unfinished subgoal(s): `
+        + unfinished.map(subgoal => `${subgoal.id} ${subgoal.status}`).join(', '),
+        'GOAL_SUBGOALS_OPEN',
+      )
+    }
     return this.transition(
       agent,
       ref,
@@ -448,9 +513,98 @@ export class GoalService extends TypertRemoteService {
     return { ...tombstone }
   }
 
+  /**
+   * Add one per-condition child to the current goal. The child list is its own
+   * durable fact stream: goal revision, phase and round budget are untouched.
+   * @param agent - owning live agent.
+   * @param request - condition the child tracks.
+   * @returns the refreshed view with the new child last.
+   */
+  @Remote('addSubgoal')
+  addSubgoal(agent: Agent, request: AddGoalSubgoalRequest): GoalView {
+    const [state] = this.prepareMutation(agent)
+    if (state === null) throw new GoalError('no current goal', 'GOAL_NOT_FOUND')
+    if (state.subgoals.length >= MAX_GOAL_SUBGOALS) {
+      throw new GoalError(`goal "${state.goal.id}" already carries the maximum ${String(MAX_GOAL_SUBGOALS)} subgoals`, 'GOAL_INVALID_SUBGOAL')
+    }
+    const subgoal: GoalSubgoal = {
+      id: nextSubgoalId(state.subgoals),
+      title: resolveSubgoalTitle(request.title),
+      status: 'open',
+    }
+    return this.commitSubgoals(agent, 'add', [...state.subgoals.map(entry => ({ ...entry })), subgoal])
+  }
+
+  /**
+   * Change one existing child's completion state and/or note.
+   * @param agent - owning live agent.
+   * @param request - exact child id plus at least one replacement field.
+   * @returns the refreshed view.
+   */
+  @Remote('updateSubgoal')
+  updateSubgoal(agent: Agent, request: UpdateGoalSubgoalRequest): GoalView {
+    const [state] = this.prepareMutation(agent)
+    if (state === null) throw new GoalError('no current goal', 'GOAL_NOT_FOUND')
+    const current = state.subgoals.find(entry => entry.id === request.id)
+    if (current === undefined) {
+      throw new GoalError(`goal subgoal "${request.id}" does not exist`, 'GOAL_SUBGOAL_NOT_FOUND')
+    }
+    if (request.status === undefined && request.note === undefined) {
+      throw new GoalError('goal subgoal update requires status and/or note', 'GOAL_INVALID_SUBGOAL')
+    }
+    const note: string | undefined = request.note === undefined
+      ? current.note
+      : resolveSubgoalNote(request.note)
+    const next: GoalSubgoal = {
+      id: current.id,
+      title: current.title,
+      status: request.status ?? current.status,
+      ...note === undefined ? {} : { note },
+    }
+    return this.commitSubgoals(agent, 'update', state.subgoals.map(entry => (
+      entry.id === next.id ? next : { ...entry }
+    )))
+  }
+
+  /**
+   * Remove one existing child from the current goal.
+   * @param agent - owning live agent.
+   * @param request - exact child id.
+   * @returns the refreshed view.
+   */
+  @Remote('removeSubgoal')
+  removeSubgoal(agent: Agent, request: RemoveGoalSubgoalRequest): GoalView {
+    const [state] = this.prepareMutation(agent)
+    if (state === null) throw new GoalError('no current goal', 'GOAL_NOT_FOUND')
+    const remaining = state.subgoals.filter(entry => entry.id !== request.id)
+    if (remaining.length === state.subgoals.length) {
+      throw new GoalError(`goal subgoal "${request.id}" does not exist`, 'GOAL_SUBGOAL_NOT_FOUND')
+    }
+    return this.commitSubgoals(agent, 'remove', remaining.map(entry => ({ ...entry })))
+  }
+
+  /** Append one complete subgoal list and return the refreshed view. */
+  private commitSubgoals(agent: Agent, operation: GoalSubgoalOperation, subgoals: GoalSubgoal[]): GoalView {
+    const state = this.state(agent.session)
+    if (state === null) throw new GoalError('no current goal', 'GOAL_NOT_FOUND')
+    const change: GoalSubgoalChangeMeta = {
+      kind: 'goal/subgoal',
+      version: GOAL_CHANGE_VERSION,
+      goalId: state.goal.id,
+      goalRevision: state.goal.revision,
+      operation,
+      subgoals,
+      at: Math.max(Date.now(), state.updatedAt),
+    }
+    agent.session.append('goal/subgoal', change)
+    const view = this.view(this.state(agent.session), this.runtimeState(agent.session))
+    /* v8 ignore next -- the append above commits a list scoped to the current goal. */
+    if (view === undefined) throw new GoalError('no current goal', 'GOAL_NOT_FOUND')
+    return view
+  }
+
   /** Resolve the durable and process-local state used by a mutation. */
-  private prepareMutation(agent: Agent): readonly [GoalProjection | null, GoalRuntimeState] {
-    this.assertLive(agent)
+  private prepareMutation(agent: Agent): readonly [GoalProjection | null, GoalRuntimeState] {    this.assertLive(agent)
     return [this.state(agent.session), this.runtimeState(agent.session)]
   }
 
@@ -595,13 +749,10 @@ export class GoalService extends TypertRemoteService {
       updatedAt,
     }
     this.commit(agent, runtime, change, activation)
-    return {
-      ...goal,
-      roundsStarted,
-      createdAt,
-      updatedAt,
-      activation: runtime.activation,
-    }
+    const view = this.view(this.state(agent.session), runtime)
+    /* v8 ignore next -- the commit above just committed a current goal. */
+    if (view === undefined) throw new Error('goal commit produced no current goal')
+    return view
   }
 
   /** Commit one mutation into the goal log and live event stream. */
@@ -633,6 +784,7 @@ export class GoalService extends TypertRemoteService {
       createdAt: state.createdAt,
       updatedAt: state.updatedAt,
       activation: runtime.activation,
+      subgoals: state.subgoals.map(subgoal => ({ ...subgoal })),
     }
   }
 

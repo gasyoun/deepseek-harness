@@ -232,6 +232,18 @@ describe('/goal human command', () => {
     expect(complete.text).toContain('Commands: /goal <objective>, /goal clear')
   })
 
+  it('lists subgoals with progress, status and notes', async () => {
+    const test = await harness()
+    test.ctx.goals.create(test.agent, { objective: 'subgoal display' })
+    test.ctx.goals.addSubgoal(test.agent, { title: 'green gate' })
+    test.ctx.goals.addSubgoal(test.agent, { title: 'land PR' })
+    test.ctx.goals.updateSubgoal(test.agent, { id: 's1', status: 'done', note: 'passed' })
+
+    const text = (await run(test)).text
+    expect(text).toContain('Rounds: 0/256\nSubgoals: 1/2 done\n'
+      + '  · s1 [done] green gate — passed\n  · s2 [open] land PR\nActivation:')
+  })
+
   it('does not turn unexpected implementation failures into expected command results', async () => {
     const test = await harness()
     vi.spyOn(test.ctx.goals, 'get').mockImplementationOnce(() => { throw new Error('unexpected failure') })

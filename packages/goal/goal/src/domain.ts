@@ -8,7 +8,7 @@
  */
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import type { GoalId, GoalRef, GoalSnapshot, GoalView } from './types.ts'
+import type { GoalId, GoalRef, GoalSnapshot, GoalSubgoal, GoalView } from './types.ts'
 
 /** Goal state-changing verbs recorded in the durable source change. */
 export type GoalOperation =
@@ -43,6 +43,32 @@ export interface GoalClearChangeMeta {
 /** Durable change union carried by the goal domain's own session event. */
 export type GoalChangeMeta = GoalSnapshotChangeMeta | GoalClearChangeMeta
 
+/** Goal state-changing verbs that may touch its subgoal list. */
+export type GoalSubgoalOperation =
+  | 'add'
+  | 'update'
+  | 'remove'
+
+/**
+ * Complete post-mutation subgoal list of one goal, committed by a durable
+ * `goal/subgoal` event. The list is authoritative and idempotent on replay:
+ * a later `goal/change` create for a new goal discards every prior list, and
+ * a clear tombstone leaves none.
+ */
+export interface GoalSubgoalChangeMeta {
+  readonly kind: 'goal/subgoal'
+  readonly version: 1
+  /** Goal the list belongs to; a mismatch with the current goal drops the event. */
+  readonly goalId: GoalId
+  /** Goal revision the mutation was computed against, for diagnosis. */
+  readonly goalRevision: number
+  readonly operation: GoalSubgoalOperation
+  /** Complete child list after the mutation, in display order. */
+  readonly subgoals: readonly GoalSubgoal[]
+  /** Epoch milliseconds of the mutation. */
+  readonly at: number
+}
+
 /** Message attribution for admitted continuation rounds. */
 export interface GoalMessageSource {
   readonly kind: 'goal'
@@ -64,6 +90,10 @@ declare module '@deepseek-ai/dsh-session/types' {
      * Complete post-mutation goal state or clear tombstone.
      */
     'goal/change': GoalChangeMeta
+    /**
+     * Complete post-mutation subgoal list of the current goal.
+     */
+    'goal/subgoal': GoalSubgoalChangeMeta
   }
 }
 
@@ -79,6 +109,8 @@ export interface FoldedGoal {
   readonly updatedAt?: number
   /** Latest mutation ref, including a clear tombstone. */
   readonly lastRef?: GoalRef
+  /** Per-condition children of the current goal, in creation order. */
+  readonly subgoals: readonly GoalSubgoal[]
 }
 
 /** Live notification after one durable goal mutation commits. */
@@ -100,6 +132,9 @@ export type GoalErrorCode =
   | 'GOAL_INVALID_BLOCK_REASON'
   | 'GOAL_INVALID_EDIT'
   | 'GOAL_INVALID_TRANSITION'
+  | 'GOAL_SUBGOALS_OPEN'
+  | 'GOAL_INVALID_SUBGOAL'
+  | 'GOAL_SUBGOAL_NOT_FOUND'
 
 declare module '@deepseek-ai/cordis' {
   interface Events {

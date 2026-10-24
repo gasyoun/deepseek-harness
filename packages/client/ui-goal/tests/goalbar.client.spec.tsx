@@ -57,6 +57,31 @@ describe('GoalBar', () => {
     expect(actions.onClear).toHaveBeenCalledTimes(1)
   })
 
+  it('shows subgoal progress and expands the per-condition list on demand', () => {
+    const actions = makeActions()
+    const subgoals = [
+      { id: 's1', title: 'Green gate', status: 'done' as const, note: 'passed' },
+      { id: 's2', title: 'Land PR', status: 'open' as const },
+    ]
+    const { rerender } = render(<GoalBar goal={makeGoal()} subgoals={subgoals} {...actions} t={t} />)
+    const chip = screen.getByRole('button', { name: '子目标' })
+    expect(chip.textContent).toBe('1/2')
+    expect(chip.getAttribute('aria-expanded')).toBe('false')
+    expect(screen.queryByText('Green gate')).toBeNull()
+
+    fireEvent.click(chip)
+    expect(chip.getAttribute('aria-expanded')).toBe('true')
+    expect(screen.getByText('Green gate')).toBeTruthy()
+    expect(screen.getByText('Land PR')).toBeTruthy()
+    expect(screen.getByText('passed')).toBeTruthy()
+
+    fireEvent.click(chip)
+    expect(screen.queryByText('Green gate')).toBeNull()
+
+    rerender(<GoalBar goal={makeGoal()} {...actions} t={t} />)
+    expect(screen.queryByRole('button', { name: '子目标' })).toBeNull()
+  })
+
   it('single-flights rapid clear clicks and hides the committed goal before its projection catches up', async () => {
     const actions = makeActions()
     let resolveClear!: (result: GoalActionResult) => void

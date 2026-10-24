@@ -64,6 +64,15 @@ A goal moves through four durable phases — `active`, `paused`, `blocked`, `com
 | `complete` | Marks the goal achieved and stops continuation |
 | `block` | Records a stable blocker code and explanation |
 | `clear` | Removes the current goal; its history stays in the session log |
+| `addSubgoal` | Appends one per-condition child (`s1`, `s2`, …) to the current goal |
+| `updateSubgoal` | Sets one child's `open`/`done`/`blocked` state and/or note |
+| `removeSubgoal` | Drops one child |
+
+Subgoals are durable per-condition children, not second goals: a child mutation leaves the
+goal's phase, revision, objective and round budget untouched and commits the complete list in
+its own `goal/subgoal` event. A goal carries at most 16 children, `complete` is refused while
+any child is not `done`, and the `goal` projection exposes the list as `subgoals` (projection
+state version 7; a v6 log replays with an empty list).
 
 Pause, completion, blocking, and clear all disarm continuation. Blocking is the one phase that keeps a policy-owned lower-kebab-case code and a free-form explanation, so provider limits, exhausted budgets, execution errors, and requests for human input share a single durable phase instead of multiplying lifecycle states. Resume accepts a stopped goal, or an active but disarmed one, only while the round cap has remaining capacity, and it clears any former blocker reason.
 

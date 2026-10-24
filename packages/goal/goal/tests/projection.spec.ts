@@ -160,6 +160,7 @@ describe('goal projection unit', () => {
       roundsStarted: 0,
       createdAt: 1,
       updatedAt: 1,
+      subgoals: [],
     }
     const state: GoalProjectionState = {
       current,

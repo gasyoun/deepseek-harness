@@ -14,6 +14,10 @@ export const zh = {
   'action.resume': '恢复目标',
   'action.edit': '编辑目标',
   'action.clear': '清除目标',
+  'subgoals.label': '子目标',
+  'subgoals.status.open': '未完成',
+  'subgoals.status.done': '已完成',
+  'subgoals.status.blocked': '受阻',
 } satisfies Record<string, string>
 
 /** The goal namespace key union. */
@@ -33,6 +37,10 @@ export const en = {
   'action.resume': 'Resume goal',
   'action.edit': 'Edit goal',
   'action.clear': 'Clear goal',
+  'subgoals.label': 'Subgoals',
+  'subgoals.status.open': 'Open',
+  'subgoals.status.done': 'Done',
+  'subgoals.status.blocked': 'Blocked',
 } satisfies Record<GoalKey, string>
 
 /** Japanese copy, checked against the English keys. */
@@ -49,6 +57,10 @@ export const ja = {
   'action.resume': '目標を再開',
   'action.edit': '目標を編集',
   'action.clear': '目標をクリア',
+  'subgoals.label': 'サブゴール',
+  'subgoals.status.open': '未完了',
+  'subgoals.status.done': '完了',
+  'subgoals.status.blocked': 'ブロック',
 } satisfies Record<keyof typeof en, string>
 
 /** Spanish dictionary, checked against the English keys. */
@@ -65,6 +77,10 @@ export const es = {
   'action.resume': 'Reanudar objetivo',
   'action.edit': 'Editar objetivo',
   'action.clear': 'Objetivo claro',
+  'subgoals.label': 'Subobjetivos',
+  'subgoals.status.open': 'Pendiente',
+  'subgoals.status.done': 'Hecho',
+  'subgoals.status.blocked': 'Bloqueado',
 } satisfies Record<keyof typeof en, string>
 
 /** French dictionary, checked against the English keys. */
@@ -81,6 +97,10 @@ export const fr = {
   'action.resume': "Reprendre l'objectif",
   'action.edit': "Modifier l'objectif",
   'action.clear': 'Objectif clair',
+  'subgoals.label': 'Sous-objectifs',
+  'subgoals.status.open': 'En cours',
+  'subgoals.status.done': 'Terminé',
+  'subgoals.status.blocked': 'Bloqué',
 } satisfies Record<keyof typeof en, string>
 
 /** German dictionary, checked against the English keys. */
@@ -97,6 +117,10 @@ export const de = {
   'action.resume': 'Ziel fortsetzen',
   'action.edit': 'Ziel bearbeiten',
   'action.clear': 'Klares Ziel',
+  'subgoals.label': 'Teilziele',
+  'subgoals.status.open': 'Offen',
+  'subgoals.status.done': 'Erledigt',
+  'subgoals.status.blocked': 'Blockiert',
 } satisfies Record<keyof typeof en, string>
 
 /** Russian dictionary, checked against the English keys. */
@@ -113,6 +137,10 @@ export const ru = {
   'action.resume': 'Возобновить цель',
   'action.edit': 'Изменить цель',
   'action.clear': 'Четкая цель',
+  'subgoals.label': 'Подцели',
+  'subgoals.status.open': 'Открыта',
+  'subgoals.status.done': 'Готово',
+  'subgoals.status.blocked': 'Заблокирована',
 } satisfies Record<keyof typeof en, string>
 
 /** Portuguese dictionary, checked against the English keys. */
@@ -129,4 +157,8 @@ export const pt = {
   'action.resume': 'Retomar meta',
   'action.edit': 'Editar meta',
   'action.clear': 'Objetivo claro',
+  'subgoals.label': 'Subobjetivos',
+  'subgoals.status.open': 'Pendente',
+  'subgoals.status.done': 'Concluído',
+  'subgoals.status.blocked': 'Bloqueado',
 } satisfies Record<keyof typeof en, string>

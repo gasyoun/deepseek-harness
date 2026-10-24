@@ -130,3 +130,62 @@
   opacity: 0.4;
   cursor: default;
 }
+
+.subgoalChip {
+  flex: none;
+  box-sizing: border-box;
+  height: 22px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.subgoalChip:hover {
+  color: var(--dsw-alias-label-primary);
+}
+
+.subgoalList {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: calc(var(--dsh-composer-card-max-width) - 4 * var(--dsh-composer-dock-inset));
+  margin: 6px auto 0;
+  padding: 8px 12px;
+  list-style: none;
+  border-radius: var(--dsw-radius-md);
+  background: var(--dsw-specific-menu);
+  box-shadow: var(--dsw-elevation-panel);
+}
+
+.subgoalRow {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 20px;
+  color: var(--dsw-alias-label-primary-dimmed);
+}
+
+.subgoalGlyph {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.subgoalTitle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subgoalNote {
+  flex: none;
+  color: var(--dsw-alias-label-tertiary);
+}

@@ -41,6 +41,51 @@ export interface EditGoalRequest {
   readonly maxGoalRounds?: number
 }
 
+/** Durable completion state of one goal subgoal. */
+export type GoalSubgoalStatus =
+  | 'open'
+  | 'done'
+  | 'blocked'
+
+/**
+ * One per-condition child of a goal. A subgoal is not a second goal: the
+ * parent keeps the objective, phase, round cap and revision, while the child
+ * makes one independently checkable condition separately visible and lets a
+ * partially satisfied goal report which condition still blocks it.
+ */
+export interface GoalSubgoal {
+  /** Stable identity within the parent goal, minted by the service (`s1`, `s2`, …). */
+  readonly id: string
+  /** Non-empty normalized condition the child tracks. */
+  readonly title: string
+  /** Current durable completion state. */
+  readonly status: GoalSubgoalStatus
+  /** Optional normalized note explaining the state. */
+  readonly note?: string
+}
+
+/** Input for adding one per-condition child to the current goal. */
+export interface AddGoalSubgoalRequest {
+  /** Non-empty condition the child tracks. */
+  readonly title: string
+}
+
+/** Input for changing one existing child; at least one of `status` or `note` must be present. */
+export interface UpdateGoalSubgoalRequest {
+  /** Exact child identity within the current goal. */
+  readonly id: string
+  /** Replacement completion state. */
+  readonly status?: GoalSubgoalStatus
+  /** Replacement note; `null` clears the stored note. */
+  readonly note?: string | null
+}
+
+/** Input for removing one existing child of the current goal. */
+export interface RemoveGoalSubgoalRequest {
+  /** Exact child identity within the current goal. */
+  readonly id: string
+}
+
 /** Durable continuation phase. Activation is process-local and separate. */
 export type GoalPhase =
   | 'active'
@@ -96,6 +141,8 @@ export interface GoalView extends GoalSnapshot {
   readonly updatedAt: number
   /** Process-local continuation eligibility; never persisted. */
   readonly activation: GoalActivation
+  /** Per-condition children of this goal, in creation order. */
+  readonly subgoals: readonly GoalSubgoal[]
 }
 
 /**
@@ -113,6 +160,8 @@ export interface GoalProjection {
   readonly createdAt: number
   /** Epoch milliseconds of the latest mutation. */
   readonly updatedAt: number
+  /** Per-condition children of the current goal, in creation order. */
+  readonly subgoals: readonly GoalSubgoal[]
 }
 
 /** Strict checkpoint state used to derive the current goal client value. */

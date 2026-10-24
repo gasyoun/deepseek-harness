@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { GoalActivation, GoalSnapshot } from '@deepseek-ai/dsh-goal/client'
+import type { GoalActivation, GoalSnapshot, GoalSubgoal } from '@deepseek-ai/dsh-goal/client'
 import {
   IconCheckOutlineRegular, IconCloseOutlineRegular, IconEditOutlineRegular, IconGoalOutlineRegular,
   IconPauseOutlineRegular, IconPlayOutlineRegular, IconTrashOutlineRegular, InlineEditor, Tooltip,
@@ -24,6 +24,8 @@ export interface GoalBarProps extends GoalBarActions {
   goal: GoalSnapshot | null | undefined
   /** Process-local continuation activation; absent while the live read is pending. */
   activation?: GoalActivation
+  /** Per-condition children projected with the goal; absent means none. */
+  subgoals?: readonly GoalSubgoal[]
 }
 
 /** Strip label keys per visible phase; complete goals render nothing. */
@@ -33,18 +35,26 @@ const PHASE_LABELS = {
   blocked: 'phase.blocked',
 } as const satisfies Record<string, GoalKey>
 
+/** Accessible label keys per durable child state. */
+const SUBGOAL_STATUS_LABELS = {
+  open: 'subgoals.status.open',
+  done: 'subgoals.status.done',
+  blocked: 'subgoals.status.blocked',
+} as const satisfies Record<GoalSubgoal['status'], GoalKey>
+
 /** Strip label for an active goal using its process-local activation. */
 function activeLabel(activation: GoalActivation | undefined, t: TranslateNS<'goal'>): string {
   if (activation === 'disarmed') return t('phase.active.disarmed')
   return t(PHASE_LABELS.active)
 }
 
-export function GoalBar({ goal, activation, onEdit, onPause, onResume, onClear, t }: GoalBarProps & PropsLocale<'goal'>) {
+export function GoalBar({ goal, activation, subgoals = [], onEdit, onPause, onResume, onClear, t }: GoalBarProps & PropsLocale<'goal'>) {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
   const [pending, setPending] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
   const [clearedGoalId, setClearedGoalId] = useState<GoalSnapshot['id'] | null>(null)
+  const [subgoalsOpen, setSubgoalsOpen] = useState(false)
   const pendingRef = useRef(false)
 
   // A new goal identity (cleared/completed/replaced externally) invalidates the local edit
@@ -54,6 +64,7 @@ export function GoalBar({ goal, activation, onEdit, onPause, onResume, onClear, 
     setEditing(false)
     setActionError(null)
     setClearedGoalId(null)
+    setSubgoalsOpen(false)
   }, [goalId])
 
   // React state disables the controls on the next render; the ref closes the
@@ -126,6 +137,7 @@ export function GoalBar({ goal, activation, onEdit, onPause, onResume, onClear, 
     )
   }
 
+  const doneSubgoals = subgoals.filter(subgoal => subgoal.status === 'done').length
   const title = goal.phase === 'blocked' ? goal.blockedReason?.message : undefined
   const label = goal.phase === 'active' ? activeLabel(activation, t) : t(PHASE_LABELS[goal.phase])
   const showResume = goal.phase === 'paused'
@@ -136,6 +148,18 @@ export function GoalBar({ goal, activation, onEdit, onPause, onResume, onClear, 
         <span className={css.goalGlyph}><IconGoalOutlineRegular size={14} /></span>
         <span className={css.label}>{label}</span>
         <span className={css.objective}>{goal.objective}</span>
+        {subgoals.length > 0 && (
+          <button
+            type="button"
+            className={css.subgoalChip}
+            aria-expanded={subgoalsOpen}
+            aria-controls="goal-subgoals"
+            aria-label={t('subgoals.label')}
+            onClick={() => { setSubgoalsOpen(open => !open) }}
+          >
+            {doneSubgoals}/{subgoals.length}
+          </button>
+        )}
         {actionError !== null && <span className={css.error} role="alert">{actionError}</span>}
         <div className={css.actions}>
           {goal.phase === 'active' && activation === 'armed' && (
@@ -170,6 +194,19 @@ export function GoalBar({ goal, activation, onEdit, onPause, onResume, onClear, 
           </Tooltip>
         </div>
       </div>
+      {subgoalsOpen && subgoals.length > 0 && (
+        <ul id="goal-subgoals" className={css.subgoalList} aria-label={t('subgoals.label')}>
+          {subgoals.map(subgoal => (
+            <li key={subgoal.id} className={css.subgoalRow} title={subgoal.note ?? subgoal.title}>
+              <span className={css.subgoalGlyph} aria-label={t(SUBGOAL_STATUS_LABELS[subgoal.status])}>
+                {subgoal.status === 'done' ? '✓' : subgoal.status === 'blocked' ? '!' : '○'}
+              </span>
+              <span className={css.subgoalTitle}>{subgoal.title}</span>
+              {subgoal.note !== undefined && <span className={css.subgoalNote}>{subgoal.note}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }
@@ -186,6 +223,7 @@ export function GoalDock({
 }: GoalDockProps) {
   const projection = useProjection('goal')
   const goal = projection === undefined || projection === null ? projection : projection.goal
+  const subgoals = projection === undefined || projection === null ? [] : projection.subgoals
   const goalId = goal?.id
   const revision = goal?.revision
   const activation = useGoalActivation(next => (
@@ -195,6 +233,7 @@ export function GoalDock({
   return (
     <GoalBar
       goal={goal}
+      subgoals={subgoals}
       {...activation === undefined ? {} : { activation }}
       onEdit={onEdit}
       onPause={onPause}

@@ -10,8 +10,11 @@ import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import GoalService, {
   GoalError,
   GoalId,
+  applyGoalProjection,
   decodeGoalChange,
+  decodeGoalSubgoalChange,
   foldGoal,
+  goalProjectionDefinition,
 } from '@deepseek-ai/dsh-goal'
 import type { GoalChangeMeta, GoalRef, GoalSnapshotChangeMeta } from '@deepseek-ai/dsh-goal'
 import { unsupportedModel, createInboxStub } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -311,6 +314,109 @@ describe('GoalService creation and replay', () => {
 
 })
 
+describe('GoalService subgoals', () => {
+  it('adds, updates and removes children without spending goal revisions', async () => {
+    const { ctx, agent } = await harness()
+    const created = ctx.goals.create(agent, { objective: 'ship the refresh' })
+
+    const one = ctx.goals.addSubgoal(agent, { title: '  green gate  ' })
+    expect(one.subgoals).toEqual([{ id: 's1', title: 'green gate', status: 'open' }])
+    expect(one.revision).toBe(created.revision)
+
+    const two = ctx.goals.addSubgoal(agent, { title: 'land the PR' })
+    expect(two.subgoals.map(subgoal => subgoal.id)).toEqual(['s1', 's2'])
+
+    const done = ctx.goals.updateSubgoal(agent, { id: 's1', status: 'done', note: ' gate ok ' })
+    expect(done.subgoals[0]).toEqual({ id: 's1', title: 'green gate', status: 'done', note: 'gate ok' })
+
+    const unnoted = ctx.goals.updateSubgoal(agent, { id: 's1', note: null })
+    expect(unnoted.subgoals[0]).not.toHaveProperty('note')
+
+    const removed = ctx.goals.removeSubgoal(agent, { id: 's1' })
+    expect(removed.subgoals.map(subgoal => subgoal.id)).toEqual(['s2'])
+    expect(removed.revision).toBe(created.revision)
+  })
+
+  it('refuses completion while a child is unfinished and lists the blockers', async () => {
+    const { ctx, agent } = await harness()
+    const goal = ctx.goals.create(agent, { objective: 'two conditions' })
+    ctx.goals.addSubgoal(agent, { title: 'first' })
+    ctx.goals.addSubgoal(agent, { title: 'second' })
+
+    expect(() => ctx.goals.complete(agent, goal)).toThrow(expect.objectContaining({
+      code: 'GOAL_SUBGOALS_OPEN',
+      message: expect.stringContaining('s1 open, s2 open'),
+    }))
+
+    ctx.goals.updateSubgoal(agent, { id: 's1', status: 'done' })
+    ctx.goals.updateSubgoal(agent, { id: 's2', status: 'done' })
+    expect(ctx.goals.complete(agent, goal).phase).toBe('complete')
+  })
+
+  it('rejects unknown children, empty updates and an over-long list', async () => {
+    const { ctx, agent } = await harness()
+    ctx.goals.create(agent, { objective: 'bounded checklist' })
+
+    expect(() => ctx.goals.updateSubgoal(agent, { id: 's9', status: 'done' })).toThrow(expect.objectContaining({
+      code: 'GOAL_SUBGOAL_NOT_FOUND',
+    }))
+    ctx.goals.addSubgoal(agent, { title: 'known' })
+    expect(() => ctx.goals.updateSubgoal(agent, { id: 's1' })).toThrow(expect.objectContaining({
+      code: 'GOAL_INVALID_SUBGOAL',
+    }))
+    expect(() => ctx.goals.removeSubgoal(agent, { id: 's9' })).toThrow(expect.objectContaining({
+      code: 'GOAL_SUBGOAL_NOT_FOUND',
+    }))
+
+    for (let index = 2; index <= 16; index += 1) ctx.goals.addSubgoal(agent, { title: `row ${String(index)}` })
+    expect(() => ctx.goals.addSubgoal(agent, { title: 'one too many' })).toThrow(expect.objectContaining({
+      code: 'GOAL_INVALID_SUBGOAL',
+    }))
+  })
+
+  it('replays children from the session log and discards them with their goal', async () => {
+    const { ctx, agent, session } = await harness()
+    const goal = ctx.goals.create(agent, { objective: 'replayable' })
+    ctx.goals.addSubgoal(agent, { title: 'row' })
+    ctx.goals.updateSubgoal(agent, { id: 's1', status: 'blocked', note: 'waiting' })
+
+    expect(foldGoal(session.snapshotEvents()).subgoals).toEqual([
+      { id: 's1', title: 'row', status: 'blocked', note: 'waiting' },
+    ])
+
+    ctx.goals.clear(agent, goal)
+    expect(foldGoal(session.snapshotEvents()).subgoals).toEqual([])
+
+    const next = ctx.goals.create(agent, { objective: 'fresh' })
+    expect(next.subgoals).toEqual([])
+  })
+
+  it('projects children to the client value and ignores a list scoped to another goal', async () => {
+    const { ctx, agent, session } = await harness()
+    ctx.goals.create(agent, { objective: 'projected' })
+    ctx.goals.addSubgoal(agent, { title: 'visible' })
+
+    const projected = ctx.sessionProjections.stateOf(session, 'goal').current
+    expect(projected?.subgoals).toEqual([{ id: 's1', title: 'visible', status: 'open' }])
+
+    const change = decodeGoalSubgoalChange({
+      kind: 'goal/subgoal',
+      version: 1,
+      goalId: 'goal-other',
+      goalRevision: 1,
+      operation: 'add',
+      subgoals: [],
+      at: 1,
+    })
+    if (change === undefined) throw new Error('fixture must decode as a subgoal change')
+    const stale = applyGoalProjection(goalProjectionDefinition.init(), {
+      type: 'goal/subgoal', seq: 0, time: 1,
+      data: change,
+    } as never)
+    expect(stale.current).toBeNull()
+  })
+})
+
 describe('GoalService mutations', () => {
   it('adapts Remote creation and reuses business methods for later mutations', async () => {
     const { ctx, agent } = await harness()
@@ -437,7 +543,7 @@ describe('GoalService mutations', () => {
     const tombstone = ctx.goals.clear(agent, goal)
     expect(tombstone).toEqual({ id: goal.id, revision: 2 })
     expect(ctx.goals.get(agent)).toBeUndefined()
-    expect(foldGoal(session.snapshotEvents())).toEqual({ roundsStarted: 0, lastRef: tombstone })
+    expect(foldGoal(session.snapshotEvents())).toEqual({ roundsStarted: 0, lastRef: tombstone, subgoals: [] })
     expect(() => ctx.goals.clear(agent, goal)).toThrow(expect.objectContaining({ code: 'GOAL_NOT_FOUND' }))
     const next = ctx.goals.create(agent, { objective: 'fresh' })
     expect(next.id).not.toBe(goal.id)
@@ -637,7 +743,7 @@ describe('goal replay validation', () => {
       content: [{ type: 'text', text: 'other' }],
       source: { kind: 'test' },
     }))
-    expect(foldGoal(session.snapshotEvents())).toEqual({ roundsStarted: 0 })
+    expect(foldGoal(session.snapshotEvents())).toEqual({ roundsStarted: 0, subgoals: [] })
     const source = { kind: 'ordinary-user-message' } as const
     const turn = nextTurn(session)
     session.append('turn/start', { turn })
@@ -645,7 +751,7 @@ describe('goal replay validation', () => {
       content: [{ type: 'text', text: 'ordinary' }], source,
     }), { surfaceOp: 'append' })
     session.append('turn/end', { turn, reason: { kind: 'completed' } })
-    expect(foldGoal(session.snapshotEvents())).toEqual({ roundsStarted: 0 })
+    expect(foldGoal(session.snapshotEvents())).toEqual({ roundsStarted: 0, subgoals: [] })
   })
 
   it('rejects rounds attributed to another goal', () => {
@@ -837,6 +943,7 @@ describe('goal replay validation', () => {
     expect(foldGoal(session.snapshotEvents())).toEqual({
       roundsStarted: 0,
       lastRef: { id: change.goal.id, revision: 2 },
+      subgoals: [],
     })
   })
 })
