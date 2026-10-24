@@ -452,15 +452,15 @@
           },
           "subgoal_title": {
             "type": "string",
-            "description": "Required with action add_subgoal: one independently checkable condition of this goal."
+            "description": "Condition the child tracks (add_subgoal)."
           },
           "subgoal_id": {
             "type": "string",
-            "description": "Required with action update_subgoal or remove_subgoal: the id returned by get_goal."
+            "description": "Child id from get_goal (update/remove)."
           },
           "subgoal_status": {
             "type": "string",
-            "description": "Required with action update_subgoal unless subgoal_note is given.",
+            "description": "New child state (update_subgoal).",
             "enum": [
               "open",
               "done",
@@ -469,7 +469,7 @@
           },
           "subgoal_note": {
             "type": "string",
-            "description": "Optional with action update_subgoal: why the condition is in that state; an empty string clears it."
+            "description": "Why; empty clears (update_subgoal)."
           }
         },
         "required": [
