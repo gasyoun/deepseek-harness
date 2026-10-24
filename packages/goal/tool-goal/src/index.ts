@@ -362,6 +362,12 @@ export function apply(ctx: Context, config: Config): void {
           if (!hasText(args.subgoal_title)) {
             throw new HarnessError('subgoal_title is required with action add_subgoal', 'GOAL_TOOL_INVALID_UPDATE')
           }
+          if (args.subgoal_status !== undefined || args.subgoal_note !== undefined) {
+            throw new HarnessError(
+              'subgoal_status and subgoal_note are not valid with action add_subgoal; add the child, then call update_subgoal',
+              'GOAL_TOOL_INVALID_UPDATE',
+            )
+          }
           return Promise.resolve(goalValue(ctx.goals.addSubgoal(execution.agent, { title: args.subgoal_title })))
         }
         if (!hasText(args.subgoal_id)) {

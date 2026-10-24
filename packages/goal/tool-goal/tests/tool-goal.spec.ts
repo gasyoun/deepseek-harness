@@ -755,6 +755,17 @@ describe('goal tool subgoals', () => {
     const missingTitle = await execute(ctx, 'update_goal', { ...ref, action: 'add_subgoal' }, root.agent)
     expect(missingTitle.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
 
+    const statusOnAdd = await execute(ctx, 'update_goal', {
+      ...ref, action: 'add_subgoal', subgoal_title: 'row', subgoal_status: 'done',
+    }, root.agent)
+    expect(statusOnAdd.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+    expect(statusOnAdd.error?.message).toContain('call update_subgoal')
+
+    const noteOnAdd = await execute(ctx, 'update_goal', {
+      ...ref, action: 'add_subgoal', subgoal_title: 'row', subgoal_note: 'why',
+    }, root.agent)
+    expect(noteOnAdd.error?.info?.code).toBe('GOAL_TOOL_INVALID_UPDATE')
+
     const missingId = await execute(ctx, 'update_goal', {
       ...ref, action: 'remove_subgoal',
     }, root.agent)

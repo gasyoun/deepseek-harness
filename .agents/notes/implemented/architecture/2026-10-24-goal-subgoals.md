@@ -20,7 +20,7 @@ A `goal/subgoal` session event carries the complete post-mutation list for one g
 
 ### The state is visible where each consumer already reads
 
-The `goal` projection exposes `subgoals` and its state version moves 6 → 7, so a cached v6 projection is discarded and re-derived rather than migrated. The model tools expose the list on `get_goal` and take `add_subgoal` / `update_subgoal` / `remove_subgoal` on `update_goal`, with one terse guidance sentence for the per-condition rule and the completion gate — kept short because the recorded compaction fixtures have token budgets a longer paragraph would cross; `/goal` renders `Subgoals: N/M done` with one line per child; the Web strip shows a `done/total` chip that expands in place.
+The `goal` projection exposes `subgoals` and its state version moves 6 → 7, so a cached v6 projection is discarded and re-derived rather than migrated. The model tools expose the list on `get_goal` and take `add_subgoal` / `update_subgoal` / `remove_subgoal` on `update_goal`, with one terse guidance sentence for the per-condition rule and the completion gate; `add_subgoal` creates children as `open` and refuses a status or note with a pointer to `update_subgoal` (a live GUI run caught the model passing `subgoal_status` to `add_subgoal`, which the first cut silently ignored) — kept short because the recorded compaction fixtures have token budgets a longer paragraph would cross; `/goal` renders `Subgoals: N/M done` with one line per child; the Web strip shows a `done/total` chip that expands in place.
 
 ### Bounds and the completion rule are enforced where the mutation happens
 

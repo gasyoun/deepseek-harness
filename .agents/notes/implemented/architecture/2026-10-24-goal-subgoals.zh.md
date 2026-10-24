@@ -20,7 +20,7 @@ Status: implemented
 
 ### 状态出现在每个消费方本来就在读的地方
 
-`goal` 投影暴露 `subgoals`，其状态版本从 6 移到 7，因此缓存的 v6 投影会被丢弃并重新派生，而不是迁移。模型工具在 `get_goal` 上返回该列表，并在 `update_goal` 上接受 `add_subgoal` / `update_subgoal` / `remove_subgoal`，只用一句简短的提示说明按条件拆分与完成门槛——保持简短的原因是录制的压缩夹具带有 token 预算，过长的段落会越界；`/goal` 渲染 `Subgoals: N/M done` 并为每个子目标列出一行；Web 目标条显示一个 `done/total` 徽标，在原位展开清单。
+`goal` 投影暴露 `subgoals`，其状态版本从 6 移到 7，因此缓存的 v6 投影会被丢弃并重新派生，而不是迁移。模型工具在 `get_goal` 上返回该列表，并在 `update_goal` 上接受 `add_subgoal` / `update_subgoal` / `remove_subgoal`，只用一句简短的提示说明按条件拆分与完成门槛——保持简短的原因是录制的压缩夹具带有 token 预算，过长的段落会越界；`add_subgoal` 把子目标创建为 `open`，并在传入状态或备注时拒绝并提示改用 `update_subgoal`（一次真实 GUI 运行发现模型向 `add_subgoal` 传了 `subgoal_status`，最初的实现会静默忽略它）；`/goal` 渲染 `Subgoals: N/M done` 并为每个子目标列出一行；Web 目标条显示一个 `done/total` 徽标，在原位展开清单。
 
 ### 边界与完成规则在变更发生处强制执行
 
