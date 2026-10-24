@@ -138,6 +138,7 @@
   padding: 0 8px;
   border: 0;
   border-radius: 999px;
+  corner-shape: round;
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
@@ -145,8 +146,10 @@
   cursor: pointer;
 }
 
-.subgoalChip:hover {
-  color: var(--dsw-alias-label-primary);
+@media (hover: hover) and (pointer: fine) {
+  .subgoalChip:hover {
+    color: var(--dsw-alias-label-primary);
+  }
 }
 
 .subgoalList {
@@ -158,6 +161,7 @@
   list-style: none;
   border-radius: var(--dsw-radius-md);
   background: var(--dsw-specific-menu);
+  backdrop-filter: var(--dsw-menu-backdrop-filter);
   box-shadow: var(--dsw-elevation-panel);
 }
 
