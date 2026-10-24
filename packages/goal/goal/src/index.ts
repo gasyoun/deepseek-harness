@@ -532,7 +532,7 @@ export class GoalService extends TypertRemoteService {
       title: resolveSubgoalTitle(request.title),
       status: 'open',
     }
-    return this.commitSubgoals(agent, 'add', [...state.subgoals.map(entry => ({ ...entry })), subgoal])
+    return this.commitSubgoals(agent, state, 'add', [...state.subgoals.map(entry => ({ ...entry })), subgoal])
   }
 
   /**
@@ -561,7 +561,7 @@ export class GoalService extends TypertRemoteService {
       status: request.status ?? current.status,
       ...note === undefined ? {} : { note },
     }
-    return this.commitSubgoals(agent, 'update', state.subgoals.map(entry => (
+    return this.commitSubgoals(agent, state, 'update', state.subgoals.map(entry => (
       entry.id === next.id ? next : { ...entry }
     )))
   }
@@ -580,13 +580,11 @@ export class GoalService extends TypertRemoteService {
     if (remaining.length === state.subgoals.length) {
       throw new GoalError(`goal subgoal "${request.id}" does not exist`, 'GOAL_SUBGOAL_NOT_FOUND')
     }
-    return this.commitSubgoals(agent, 'remove', remaining.map(entry => ({ ...entry })))
+    return this.commitSubgoals(agent, state, 'remove', remaining.map(entry => ({ ...entry })))
   }
 
   /** Append one complete subgoal list and return the refreshed view. */
-  private commitSubgoals(agent: Agent, operation: GoalSubgoalOperation, subgoals: GoalSubgoal[]): GoalView {
-    const state = this.state(agent.session)
-    if (state === null) throw new GoalError('no current goal', 'GOAL_NOT_FOUND')
+  private commitSubgoals(agent: Agent, state: GoalProjection, operation: GoalSubgoalOperation, subgoals: GoalSubgoal[]): GoalView {
     const change: GoalSubgoalChangeMeta = {
       kind: 'goal/subgoal',
       version: GOAL_CHANGE_VERSION,

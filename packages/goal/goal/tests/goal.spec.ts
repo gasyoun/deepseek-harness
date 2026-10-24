@@ -343,10 +343,16 @@ describe('GoalService subgoals', () => {
     ctx.goals.addSubgoal(agent, { title: 'first' })
     ctx.goals.addSubgoal(agent, { title: 'second' })
 
-    expect(() => ctx.goals.complete(agent, goal)).toThrow(expect.objectContaining({
-      code: 'GOAL_SUBGOALS_OPEN',
-      message: expect.stringContaining('s1 open, s2 open'),
-    }))
+    const refusal: unknown = (() => {
+      try {
+        ctx.goals.complete(agent, goal)
+      } catch (error: unknown) {
+        return error
+      }
+      throw new Error('expected completion to be refused')
+    })()
+    expect(refusal).toMatchObject({ code: 'GOAL_SUBGOALS_OPEN' })
+    expect((refusal as Error).message).toContain('s1 open, s2 open')
 
     ctx.goals.updateSubgoal(agent, { id: 's1', status: 'done' })
     ctx.goals.updateSubgoal(agent, { id: 's2', status: 'done' })
@@ -391,13 +397,12 @@ describe('GoalService subgoals', () => {
     expect(next.subgoals).toEqual([])
   })
 
-  it('projects children to the client value and ignores a list scoped to another goal', async () => {
-    const { ctx, agent, session } = await harness()
+  it('exposes children on the service view and ignores a list scoped to another goal', async () => {
+    const { ctx, agent } = await harness()
     ctx.goals.create(agent, { objective: 'projected' })
     ctx.goals.addSubgoal(agent, { title: 'visible' })
 
-    const projected = (ctx.sessionProjections.stateOf(session, 'goal') as { current: { subgoals: readonly unknown[] } | null }).current
-    expect(projected?.subgoals).toEqual([{ id: 's1', title: 'visible', status: 'open' }])
+    expect(ctx.goals.get(agent)?.subgoals).toEqual([{ id: 's1', title: 'visible', status: 'open' }])
 
     const change = decodeGoalSubgoalChange({
       kind: 'goal/subgoal',
@@ -414,6 +419,89 @@ describe('GoalService subgoals', () => {
       data: change,
     } as never)
     expect(stale.current).toBeNull()
+  })
+})
+
+describe('goal subgoal decoding and bounds', () => {
+  /** One valid decoded change, overridable per case. */
+  const change = (over: Record<string, unknown> = {}) => ({
+    kind: 'goal/subgoal',
+    version: 1,
+    goalId: 'goal-x',
+    goalRevision: 1,
+    operation: 'add',
+    subgoals: [],
+    at: 1,
+    ...over,
+  })
+
+  it('ignores values that are not a subgoal change', () => {
+    expect(decodeGoalSubgoalChange(undefined)).toBeUndefined()
+    expect(decodeGoalSubgoalChange({ kind: 'goal/change' })).toBeUndefined()
+  })
+
+  it('rejects a version, key set, goal id, operation, revision or timestamp it cannot trust', () => {
+    expect(() => decodeGoalSubgoalChange(change({ version: 2 }))).toThrow('unsupported goal subgoal change version')
+    expect(() => decodeGoalSubgoalChange(change({ extra: true }))).toThrow('must have exactly')
+    expect(() => decodeGoalSubgoalChange(change({ goalId: '' }))).toThrow('goalId must be a non-empty string')
+    expect(() => decodeGoalSubgoalChange(change({ operation: 'rename' }))).toThrow('operation is invalid')
+    expect(() => decodeGoalSubgoalChange(change({ goalRevision: 0 }))).toThrow('goalRevision must be a positive safe integer')
+    expect(() => decodeGoalSubgoalChange(change({ at: -1 }))).toThrow('at must be a non-negative safe integer')
+    expect(() => decodeGoalSubgoalChange(change({ subgoals: 'none' }))).toThrow('subgoals must be an array')
+  })
+
+  it('rejects a child list that is too long, duplicated or malformed', () => {
+    const row = (over: Record<string, unknown> = {}) => ({ id: 's1', title: 'gate', status: 'open', ...over })
+    expect(() => decodeGoalSubgoalChange(change({
+      subgoals: Array.from({ length: 17 }, (_, index) => ({ id: `s${String(index + 1)}`, title: 'row', status: 'open' })),
+    }))).toThrow('cannot exceed 16 entries')
+    expect(() => decodeGoalSubgoalChange(change({ subgoals: [row(), row()] }))).toThrow('ids must be unique')
+    expect(() => decodeGoalSubgoalChange(change({ subgoals: ['not-a-row'] }))).toThrow('must be a record')
+    expect(() => decodeGoalSubgoalChange(change({ subgoals: [row({ extra: 1 })] }))).toThrow('must have exactly')
+    expect(() => decodeGoalSubgoalChange(change({ subgoals: [row({ id: 'x1' })] }))).toThrow('service-minted')
+    expect(() => decodeGoalSubgoalChange(change({ subgoals: [row({ title: ' padded ' })] }))).toThrow('normalized')
+    expect(() => decodeGoalSubgoalChange(change({ subgoals: [row({ status: 'paused' })] }))).toThrow('status is invalid')
+    expect(() => decodeGoalSubgoalChange(change({ subgoals: [row({ title: 'x'.repeat(161) })] }))).toThrow('within its limit')
+    expect(() => decodeGoalSubgoalChange(change({ subgoals: [row({ note: ' x ' })] }))).toThrow('note must be non-empty, normalized')
+    expect(() => decodeGoalSubgoalChange(change({ subgoals: [row({ note: 'x'.repeat(501) })] }))).toThrow('note must be non-empty, normalized')
+  })
+
+  it('drops a list for no goal or another goal and rejects a future revision', () => {
+    const payload = change()
+    const empty = goalProjectionDefinition.init()
+    expect(applyGoalProjection(empty, { type: 'goal/subgoal', seq: 0, time: 1, data: payload } as never).current).toBeNull()
+
+    const current = {
+      goal: { id: GoalId('goal-a'), revision: 1, objective: 'x', phase: 'active' as const, maxGoalRounds: 4 },
+      roundsStarted: 0,
+      createdAt: 1,
+      updatedAt: 1,
+      subgoals: [],
+    }
+    const state = { current, seenGoalIds: [current.goal.id], failure: null }
+    const otherGoal = applyGoalProjection(state, { type: 'goal/subgoal', seq: 1, time: 2, data: payload } as never)
+    expect(otherGoal.current?.subgoals).toEqual([])
+
+    const future = change({ goalId: 'goal-a', goalRevision: 2 })
+    const failed = applyGoalProjection(state, { type: 'goal/subgoal', seq: 2, time: 3, data: future } as never)
+    expect(failed.failure).toContain('names a goal revision the fold has not reached')
+  })
+
+  it('rejects a title or note outside its bounds at the service boundary', async () => {
+    const { ctx, agent } = await harness()
+    ctx.goals.create(agent, { objective: 'bounded titles' })
+    expect(() => ctx.goals.addSubgoal(agent, { title: '   ' })).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_SUBGOAL' }))
+    expect(() => ctx.goals.addSubgoal(agent, { title: 'x'.repeat(161) })).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_SUBGOAL' }))
+    ctx.goals.addSubgoal(agent, { title: 'row' })
+    expect(() => ctx.goals.updateSubgoal(agent, { id: 's1', note: '   ' })).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_SUBGOAL' }))
+    expect(() => ctx.goals.updateSubgoal(agent, { id: 's1', note: 'x'.repeat(501) })).toThrow(expect.objectContaining({ code: 'GOAL_INVALID_SUBGOAL' }))
+  })
+
+  it('requires a current goal before touching children', async () => {
+    const { ctx, agent } = await harness()
+    expect(() => ctx.goals.addSubgoal(agent, { title: 'row' })).toThrow(expect.objectContaining({ code: 'GOAL_NOT_FOUND' }))
+    expect(() => ctx.goals.updateSubgoal(agent, { id: 's1', status: 'done' })).toThrow(expect.objectContaining({ code: 'GOAL_NOT_FOUND' }))
+    expect(() => ctx.goals.removeSubgoal(agent, { id: 's1' })).toThrow(expect.objectContaining({ code: 'GOAL_NOT_FOUND' }))
   })
 })
 

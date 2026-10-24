@@ -62,10 +62,11 @@ describe('GoalBar', () => {
     const subgoals = [
       { id: 's1', title: 'Green gate', status: 'done' as const, note: 'passed' },
       { id: 's2', title: 'Land PR', status: 'open' as const },
+      { id: 's3', title: 'Clearance', status: 'blocked' as const },
     ]
     const { rerender } = render(<GoalBar goal={makeGoal()} subgoals={subgoals} {...actions} t={t} />)
     const chip = screen.getByRole('button', { name: '子目标' })
-    expect(chip.textContent).toBe('1/2')
+    expect(chip.textContent).toBe('1/3')
     expect(chip.getAttribute('aria-expanded')).toBe('false')
     expect(screen.queryByText('Green gate')).toBeNull()
 
@@ -74,6 +75,7 @@ describe('GoalBar', () => {
     expect(screen.getByText('Green gate')).toBeTruthy()
     expect(screen.getByText('Land PR')).toBeTruthy()
     expect(screen.getByText('passed')).toBeTruthy()
+    expect(screen.getByLabelText('受阻')).toBeTruthy()
 
     fireEvent.click(chip)
     expect(screen.queryByText('Green gate')).toBeNull()
