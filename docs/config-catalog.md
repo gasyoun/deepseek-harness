@@ -1489,7 +1489,7 @@ export type Config = LocalConfig
 ## `@deepseek-ai/dsh-goal`
 
 - `inject`: `agents` · `sessionProjections`
-- `source`: [`packages/goal/goal/src/index.ts:168`](../packages/goal/goal/src/index.ts)
+- `source`: [`packages/goal/goal/src/index.ts:186`](../packages/goal/goal/src/index.ts)
 
 ```ts config-catalog
 /** Deployment defaults for goal creation. */

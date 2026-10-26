@@ -1447,7 +1447,10 @@ Update the current goal.
         "pause",
         "resume",
         "complete",
-        "blocked"
+        "blocked",
+        "add_subgoal",
+        "update_subgoal",
+        "remove_subgoal"
       ]
     },
     "objective": {
@@ -1461,6 +1464,27 @@ Update the current goal.
     "blocked_reason": {
       "type": "string",
       "description": "Required only with action blocked: the concrete condition that persisted across rounds and blocks progress."
+    },
+    "subgoal_title": {
+      "type": "string",
+      "description": "Condition the child tracks (add_subgoal)."
+    },
+    "subgoal_id": {
+      "type": "string",
+      "description": "Child id from get_goal (update/remove)."
+    },
+    "subgoal_status": {
+      "type": "string",
+      "description": "New child state (update_subgoal).",
+      "enum": [
+        "open",
+        "done",
+        "blocked"
+      ]
+    },
+    "subgoal_note": {
+      "type": "string",
+      "description": "Why; empty clears (update_subgoal)."
     }
   },
   "required": [
