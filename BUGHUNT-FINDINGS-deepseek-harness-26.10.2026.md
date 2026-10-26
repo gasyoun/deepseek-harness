@@ -8,7 +8,7 @@ This is a **targeted** hunt, not a read of 19,188 tracked files: five static gen
 
 | # | Sev | Finding | Status |
 |---|---|---|---|
-| M1 | MEDIUM | `feat/goal-subgoals` adds three goal-tool actions (`add_subgoal`, `update_subgoal`, `remove_subgoal`) and changes a config field, but **neither generated catalog was regenerated**: `gen-tool-catalog --check` and `gen-config-catalog --check` both fail on the branch and both pass on `master`, so merging as-is turns `master` red | reported — branch hygiene, not a master defect |
+| M1 | MEDIUM | `feat/goal-subgoals` adds three goal-tool actions (`add_subgoal`, `update_subgoal`, `remove_subgoal`) and changes a config field, but **neither generated catalog was regenerated**: `gen-tool-catalog --check` and `gen-config-catalog --check` both failed on the branch while both passed on `master`, so merging as-is would have turned `master` red | **FIXED** 26-10-2026 on `feat/goal-subgoals` (`42688e3`) |
 | L1 | LOW | Two of ten static-gate invocations died with a bare `Node.js v26.7.0` tail and `rc=1`, then passed unchanged on rerun — a gate crash is indistinguishable from a gate rejection in the captured output | reported — observability, cause unproven |
 
 No HIGH: no defect was found in shipped code. Severity here: Medium = would land a red gate or a wrong model-facing artifact; Low = latent or diagnostic.
@@ -49,7 +49,9 @@ pnpm run gen-tool-catalog && pnpm run gen-config-catalog
 git add docs/tool-catalog.md docs/config-catalog.md docs/config-catalog.zh.md
 ```
 
-I did not run them: regenerating a catalog rewrites committed documentation, which is the branch owner's call, and the branch was not mine to change.
+I did not run them in the hunt pass: regenerating a catalog rewrites committed documentation, which is the branch owner's call.
+
+**Fixed 26-10-2026** on MG's word (`fix`): both generators ran on `feat/goal-subgoals`, the regenerated files were committed as `42688e3720` and pushed to `gasyoun/deepseek-harness`. `docs/tool-catalog.md` now lists the three actions and the four subgoal parameters; `docs/config-catalog.md` and its Chinese twin only carried stale source line references for `@deepseek-ai/dsh-goal` (`index.ts:168` → `:186`). Verified with the gates that caught it, all `rc=0`: `gen-tool-catalog --check`, `gen-config-catalog --check`, `verify-md-wrap` (2,252 files), `verify-md-links` (2,206 files), `verify-doc-budgets` (7 budgeted docs). The pre-push hook's own `typecheck` also passed (5 gates, 43 s).
 
 ## L1 — a gate crash looks like a gate rejection (LOW, unproven)
 
